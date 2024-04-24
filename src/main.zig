@@ -3,26 +3,48 @@ const net = std.net;
 const Connection = net.StreamServer.Connection;
 const json = std.json;
 const print = std.debug.print;
-const alloc = std.heap.page_allocator;
+const ArrayList = std.ArrayList;
+const split = std.mem.split;
 
-const Contact = struct { email: []const u8, phone: []const u8, name: []const u8, lastname: []const u8 };
+const Status = enum(u16) {
+    Ok,
+    NotFound,
+    Created,
+    pub fn to_val(self: Status) []const u8 {
+        return switch (self) {
+            Status.Ok => "200",
+            Status.Created => "201",
+            Status.NotFound => "404",
+        };
+    }
+};
+
+var GPA = std.heap.GeneralPurposeAllocator(.{}){};
+const Allocator = GPA.allocator();
+
+const Contact = struct {
+    id: []const u8,
+    phone: []const u8,
+    name: []const u8,
+    lastname: []const u8,
+    patronymic: []const u8,
+    username: []const u8,
+    address: []const u8,
+    birthdate: []const u8,
+};
+const Contacts = ArrayList(Contact).init(Allocator);
 
 fn handle_client(client: Connection) !void {
     var buf: [1024]u8 = undefined;
-    _ = try client.stream.reader().read(&buf);
+    var read = try client.stream.reader().read(&buf);
 
-    print("received {s}", .{buf});
+    print("read: {d}, received {s}", .{ read, buf[0..read] });
 
-    var contacts = [1]Contact{Contact{ .email = "some@mail.com", .name = "somename", .lastname = "somelastname", .phone = "999-999-99-99" }};
+    //var res_buf: [200]u8 = undefined;
+    //var fba = std.heap.FixedBufferAllocator.init(&res_buf);
+    //var string = std.ArrayList(u8).init(fba.allocator());
 
-    var res_buf: [200]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&res_buf);
-    var string = std.ArrayList(u8).init(fba.allocator());
-
-    try json.stringify(contacts, .{}, string.writer());
-
-    try client.stream.writer().writeAll("HTTP/1.1 200 OK\r\nContent-Length: 100\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n\r\n");
-    try client.stream.writer().writeAll(string.items);
+    try client.stream.writer().writeAll("HTTP/1.1 200 OK\r\nContent-Length: 4;\r\n\r\nSome");
 
     client.stream.close();
 }
@@ -32,10 +54,16 @@ pub fn main() !void {
     const address = net.Address{ .in = bind };
 
     var server = net.StreamServer.init(.{ .reuse_port = true });
-    try server.listen(address);
-    defer server.deinit();
 
-    print("Listening on port: {}", .{server.listen_address.getPort()});
+    try server.listen(address);
+
+    defer {
+        server.deinit();
+        Contacts.deinit();
+        _ = GPA.deinit();
+    }
+
+    print("Listening on port: {}\n", .{server.listen_address.getPort()});
 
     while (true) {
         var client = try server.accept();
