@@ -19,8 +19,8 @@ const Status = enum(u16) {
     }
 };
 
-var GPA = std.heap.GeneralPurposeAllocator(.{}){};
-const Allocator = GPA.allocator();
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+const allocator = gpa.allocator();
 
 const Contact = struct {
     id: []const u8,
@@ -32,19 +32,29 @@ const Contact = struct {
     address: []const u8,
     birthdate: []const u8,
 };
-const Contacts = ArrayList(Contact).init(Allocator);
+
+const Contacts = ArrayList(Contact).init(allocator);
+
+const buf_len: u16 = 1024;
 
 fn handle_client(client: Connection) !void {
-    var buf: [1024]u8 = undefined;
-    var read = try client.stream.reader().read(&buf);
+    var request = std.ArrayList(u8).init(allocator);
+    defer request.deinit();
 
-    print("read: {d}, received {s}", .{ read, buf[0..read] });
+    var buf: [buf_len]u8 = undefined;
+    while (true) {
+        var read = try client.stream.reader().read(&buf);
+        print("rl: {d}", .{read});
 
-    //var res_buf: [200]u8 = undefined;
-    //var fba = std.heap.FixedBufferAllocator.init(&res_buf);
-    //var string = std.ArrayList(u8).init(fba.allocator());
+        print("read: {s}\n", .{buf[0..read]});
 
-    try client.stream.writer().writeAll("HTTP/1.1 200 OK\r\nContent-Length: 4;\r\n\r\nSome");
+        _ = try request.appendSlice(buf[0..read]);
+        if (read < buf_len) break;
+    }
+
+    print("ln: {d}\n", .{request.items.len});
+
+    try client.stream.writer().writeAll("HTTP/1.1 200 OK\r\n\r\n");
 
     client.stream.close();
 }
@@ -60,7 +70,7 @@ pub fn main() !void {
     defer {
         server.deinit();
         Contacts.deinit();
-        _ = GPA.deinit();
+        _ = gpa.deinit();
     }
 
     print("Listening on port: {}\n", .{server.listen_address.getPort()});
